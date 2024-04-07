@@ -1,0 +1,103 @@
+Parameters:
+  NameofService:
+    Description: "The name of the service this stack is used for."
+    Type: String
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - m1.small
+      - m1.large
+    Description: Enter t2.micro, m1.small, or m1.large. Default is t2.micro.
+  KeyName:
+    Description: Name of Ec2 instance login Key
+    Type: AWS::EC2::KeyPair::KeyName
+
+Mappings: 
+  AMIRegionMap: 
+    us-east-1: 
+      AMI: "ami-051f8a213df8bc089"
+    us-west-1: 
+      AMI: "ami-0b990d3cfca306617"
+
+Resources:
+  VprofileSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ssh & http from MYIP
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init: 
+        config: 
+          packages:
+             yum:
+               httpd: []
+               php: []
+               git: []
+               uzip: []
+               wget: []
+          commands:
+              test:
+                command: "wget https://www.tooplate.com/zip-templates/2135_mini_finance.zip && unzip 2135_mini_finance.zip cp -r 2135_mini_finance.zip/* /var/www/html"
+          files:
+                /var/www/html/hello.html:
+                content: !Sub |
+                 <html>
+                 <head>
+                 <title>My HTML File</title>
+                 </head>
+                 <body>
+                 <h1>Hello, CloudFormation!</h1>
+                 <p>This is a generated HTML file.</p>
+                 <p>The service name entered by the user: <strong>{{NameofService}}</strong></p>
+                 </body>
+                 </html>
+          commands:
+          01_change_permissions:
+          command: "chmod 644 /var/www/html/index.html"
+        services:
+           sysvinit:
+             httpd:
+              enabled: true
+               ensureRunning: true
+
+
+
+    Properties:
+      InstanceType: !Ref InstanceTypeParameter
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap
+        - AMIRegionMap
+        - !Ref "AWS::Region"
+        - AMI
+      Tags:
+        - Key: "Name"
+          Value: !Ref NameofService
+      SecurityGroupIds:
+        - !GetAtt VprofileSG.GroupId
+      UserData:
+        'Fn::Base64':
+          !Sub
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource MyEC2Instance --configsets InstallConfig --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource MyEC2Instance --region ${AWS::Region}
+
+Outputs:
+  PrintSomeInfo:
+    Value: !GetAtt
+      - MyInstance
+      - PublicDnsName
